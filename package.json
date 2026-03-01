@@ -1,0 +1,5 @@
+{
+  "name": "AeroPoint Extractor",
+  "description": "Extract and manage waypoint data from ENR 4.4 PDF documents with high precision.",
+  "requestFramePermissions": []
+}

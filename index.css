@@ -1,0 +1,250 @@
+import React, { useState, useMemo } from "react";
+import { 
+  Upload, 
+  Search, 
+  FileText, 
+  Download, 
+  AlertCircle, 
+  Loader2,
+  ChevronRight,
+  Database
+} from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+
+interface Waypoint {
+  name: string;
+  coordinates: string;
+  routes: string;
+}
+
+export default function App() {
+  const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
+
+  const filteredWaypoints = useMemo(() => {
+    return waypoints.filter(wp => 
+      wp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      wp.coordinates.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      wp.routes.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [waypoints, searchQuery]);
+
+  const handleFileUpload = async (file: File) => {
+    if (!file.type.includes("pdf")) {
+      setError("Please upload a valid PDF file.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error("Failed to process PDF");
+
+      const data = await response.json();
+      setWaypoints(data.waypoints);
+    } catch (err) {
+      setError("An error occurred while processing the PDF. Please try again.");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFileUpload(file);
+  };
+
+  const exportToCSV = () => {
+    const headers = ["Name", "Coordinates", "ATS Routes"];
+    const csvContent = [
+      headers.join(","),
+      ...waypoints.map(wp => `"${wp.name}","${wp.coordinates}","${wp.routes}"`)
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", "waypoints_export.csv");
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans selection:bg-[#141414] selection:text-[#E4E3E0]">
+      {/* Header */}
+      <header className="border-b border-[#141414] px-6 py-4 flex items-center justify-between bg-white/50 backdrop-blur-sm sticky top-0 z-10">
+        <div className="flex items-center gap-3">
+          <div className="bg-[#141414] p-2 rounded-sm">
+            <Database className="w-5 h-5 text-[#E4E3E0]" />
+          </div>
+          <div>
+            <h1 className="font-serif italic text-xl tracking-tight leading-none">AeroPoint Extractor</h1>
+            <p className="text-[10px] uppercase tracking-widest opacity-50 mt-1">AIP ENR 4.4 Data Processor</p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-4">
+          {waypoints.length > 0 && (
+            <button 
+              onClick={exportToCSV}
+              className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-medium hover:opacity-90 transition-opacity rounded-sm"
+            >
+              <Download className="w-3.5 h-3.5" />
+              EXPORT CSV
+            </button>
+          )}
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto p-6 space-y-6">
+        {/* Upload Section */}
+        <section>
+          <div 
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={handleDrop}
+            className={`
+              relative border-2 border-dashed transition-all duration-300 rounded-lg p-12 flex flex-col items-center justify-center gap-4
+              ${isDragging ? "border-[#141414] bg-white/40 scale-[0.99]" : "border-[#141414]/20 bg-white/20"}
+              ${loading ? "pointer-events-none opacity-50" : "cursor-pointer hover:border-[#141414]/40 hover:bg-white/30"}
+            `}
+            onClick={() => !loading && document.getElementById("fileInput")?.click()}
+          >
+            <input 
+              id="fileInput"
+              type="file" 
+              className="hidden" 
+              accept=".pdf"
+              onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
+            />
+            
+            <div className="bg-[#141414] p-4 rounded-full">
+              {loading ? (
+                <Loader2 className="w-8 h-8 text-[#E4E3E0] animate-spin" />
+              ) : (
+                <Upload className="w-8 h-8 text-[#E4E3E0]" />
+              )}
+            </div>
+            
+            <div className="text-center">
+              <h3 className="font-serif italic text-lg">
+                {loading ? "Processing Document..." : "Upload ENR 4.4 PDF"}
+              </h3>
+              <p className="text-xs opacity-50 mt-1 uppercase tracking-wider">
+                Drag and drop or click to select file
+              </p>
+            </div>
+
+            {error && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="absolute bottom-4 flex items-center gap-2 text-red-600 text-xs font-medium"
+              >
+                <AlertCircle className="w-4 h-4" />
+                {error}
+              </motion.div>
+            )}
+          </div>
+        </section>
+
+        {/* Data Grid Section */}
+        <AnimatePresence>
+          {waypoints.length > 0 && (
+            <motion.section 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-4"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-30" />
+                  <input 
+                    type="text"
+                    placeholder="Search waypoints, coordinates, or routes..."
+                    className="w-full bg-white/50 border border-[#141414]/10 rounded-sm py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-[#141414]/30 transition-colors"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                <div className="text-[10px] uppercase tracking-widest opacity-50 font-bold">
+                  {filteredWaypoints.length} Records Found
+                </div>
+              </div>
+
+              <div className="bg-white border border-[#141414] rounded-sm overflow-hidden shadow-xl shadow-black/5">
+                <div className="grid grid-cols-[80px_1.5fr_2fr_40px] px-6 py-3 border-b border-[#141414] bg-[#141414]/5">
+                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-40">Name</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-40">Coordinates</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-40">ATS Routes / Remarks</span>
+                  <span></span>
+                </div>
+
+                <div className="divide-y divide-[#141414]/10 max-h-[600px] overflow-y-auto">
+                  {filteredWaypoints.map((wp, idx) => (
+                    <motion.div 
+                      key={idx}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: idx * 0.01 }}
+                      className="grid grid-cols-[80px_1.5fr_2fr_40px] px-6 py-4 items-center hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors group cursor-default"
+                    >
+                      <span className="font-mono text-xs font-bold tracking-tighter">{wp.name}</span>
+                      <span className="font-mono text-xs opacity-70 group-hover:opacity-100">{wp.coordinates}</span>
+                      <span className="text-xs line-clamp-1 opacity-70 group-hover:opacity-100">{wp.routes}</span>
+                      <ChevronRight className="w-4 h-4 opacity-0 group-hover:opacity-30 transition-opacity" />
+                    </motion.div>
+                  ))}
+                  
+                  {filteredWaypoints.length === 0 && (
+                    <div className="py-20 text-center opacity-30 italic font-serif">
+                      No matching waypoints found.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.section>
+          )}
+        </AnimatePresence>
+
+        {/* Empty State */}
+        {waypoints.length === 0 && !loading && (
+          <div className="py-20 flex flex-col items-center justify-center opacity-20 text-center">
+            <FileText className="w-16 h-16 mb-4" />
+            <p className="font-serif italic text-xl">Waiting for data input...</p>
+            <p className="text-xs uppercase tracking-[0.2em] mt-2">Ready to process UK AIP ENR 4.4</p>
+          </div>
+        )}
+      </main>
+
+      {/* Footer */}
+      <footer className="max-w-7xl mx-auto px-6 py-12 border-t border-[#141414]/10 flex justify-between items-end opacity-40">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-widest">AeroPoint Extractor v1.0</p>
+          <p className="text-[10px] mt-1">High-Precision Aviation Data Extraction</p>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px]">© 2024 Aeronautical Information Services</p>
+        </div>
+      </footer>
+    </div>
+  );
+}
